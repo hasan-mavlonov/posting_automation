@@ -90,7 +90,8 @@ class Drafter:
             item.external_id,
             POST_LIMIT,
         )
-        return [p if len(p) <= POST_LIMIT else p[: POST_LIMIT - 1].rstrip() + "…" for p in posts]
+        # X weighs "…" as 2 characters, hence the -2.
+        return [p if len(p) <= POST_LIMIT else p[: POST_LIMIT - 2].rstrip() + "…" for p in posts]
 
     def _build_prompt(self, item: SourceItem) -> str:
         label = SOURCE_LABELS.get(item.source, item.source)
@@ -110,9 +111,11 @@ class Drafter:
             # model within the same call.
             extra_kwargs["extra_headers"] = {"anthropic-beta": "server-side-fallback-2026-07-01"}
             extra_kwargs["extra_body"] = {"fallbacks": "default"}
+        # max_tokens covers thinking + the JSON output: on claude-opus-5
+        # adaptive thinking is on by default and shares this budget.
         response = await self._client.messages.create(
             model=self._config.anthropic_model,
-            max_tokens=2048,
+            max_tokens=16000,
             system=SYSTEM_PROMPT,
             output_config={"format": {"type": "json_schema", "schema": POSTS_SCHEMA}},
             messages=messages,

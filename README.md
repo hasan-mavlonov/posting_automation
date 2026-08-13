@@ -48,7 +48,7 @@ credential is missing — it never silently no-ops.
 | `ANTHROPIC_MODEL` | — | Defaults to `claude-opus-5`. |
 | `DB_PATH` | — | Defaults to `./posting_automation.db`. |
 | `PROCESS_BACKLOG_ON_FIRST_RUN` | — | By default the first check per source marks all existing history as *seen* without posting, so you aren't flooded with the backlog. Set `true` to draft the backlog too. |
-| `MAX_ITEMS_PER_CYCLE` | — | Defaults to 10 drafts per source per cycle; the rest carry over. |
+| `MAX_ITEMS_PER_CYCLE` | — | Defaults to 10 drafts per source per cycle; the overflow is persisted and drafted on later cycles. |
 
 ### The review flow in Telegram
 
@@ -63,7 +63,10 @@ credential is missing — it never silently no-ops.
 If publishing fails before anything went out, the draft stays actionable and
 you can hit Approve again. If it fails midway through a thread, the draft is
 marked `failed` and the message tells you how many parts went out, so you can
-resolve it manually without double-posting.
+resolve it manually without double-posting. If the service dies while a
+publish was in flight, the draft is left in a `publishing` state that blocks
+re-approval — check Buffer/X to see what actually went out before resolving
+it in the database.
 
 ## Deploying on Render
 
@@ -84,6 +87,11 @@ and publish, so Render's log view tells you exactly what the worker is doing.
   the classic `api.bufferapp.com` API, which keeps working for existing tokens.
 - The GitHub poll reads the latest 30 commits and 15 releases per cycle; if
   more than that lands between two checks, the overflow is not picked up. At a
-  3-hour interval this is unlikely to matter.
+  3-hour interval this is unlikely to matter. (Items that *were* observed but
+  deferred by `MAX_ITEMS_PER_CYCLE` are persisted and never lost.)
+- Post lengths are validated as plain character counts. X weighs most emoji
+  and CJK characters as 2, so a hand-edited draft heavy in emoji can pass the
+  280 check here and still be rejected by X downstream. The Claude drafts
+  avoid emoji, so this only affects manual edits.
 - Explicitly out of scope for v1: Discord/Reddit/Hacker News, a web dashboard,
   and send-time optimization (Buffer handles scheduling).

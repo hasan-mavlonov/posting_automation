@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS drafts (
     status              TEXT NOT NULL,
     telegram_message_id INTEGER,
     created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL
+    updated_at          TEXT NOT NULL,
+    UNIQUE (source, external_id)
 );
 
 CREATE TABLE IF NOT EXISTS edit_prompts (
@@ -38,11 +39,24 @@ CREATE TABLE IF NOT EXISTS edit_prompts (
     draft_id   INTEGER NOT NULL,
     PRIMARY KEY (chat_id, message_id)
 );
+
+CREATE TABLE IF NOT EXISTS pending_items (
+    source      TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    queued_at   TEXT NOT NULL,
+    PRIMARY KEY (source, external_id)
+);
 """
 
 # Draft status lifecycle:
 #   pending        -> waiting for Approve / Edit / Reject in Telegram
 #   awaiting_edit  -> Edit pressed, waiting for replacement text
+#   publishing     -> Approve pressed, Buffer call in flight; a draft stuck
+#                     here means the process died mid-publish - verify on
+#                     Buffer/X and resolve in the DB by hand
 #   published      -> sent to Buffer
 #   rejected       -> dismissed by the reviewer
 #   failed         -> publishing partially failed; needs manual attention
@@ -107,6 +121,14 @@ class Database:
                 "SELECT * FROM drafts WHERE id = ?", (draft_id,)
             ).fetchone()
 
+    def find_draft(self, source: str, external_id: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM drafts WHERE source = ? AND external_id = ?"
+                " ORDER BY id DESC LIMIT 1",
+                (source, external_id),
+            ).fetchone()
+
     def set_draft_status(self, draft_id: int, status: str) -> None:
         with self._lock:
             self._conn.execute(
@@ -136,6 +158,34 @@ class Database:
             return self._conn.execute(
                 "SELECT * FROM drafts WHERE status = 'awaiting_edit' ORDER BY id"
             ).fetchall()
+
+    # --- pending items (per-cycle cap overflow) ---------------------------
+
+    def queue_pending_item(
+        self, source: str, external_id: str, title: str, body: str, url: str
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO pending_items"
+                " (source, external_id, title, body, url, queued_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (source, external_id, title, body, url, _now()),
+            )
+            self._conn.commit()
+
+    def pending_items(self, source: str) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM pending_items WHERE source = ? ORDER BY rowid", (source,)
+            ).fetchall()
+
+    def remove_pending_item(self, source: str, external_id: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM pending_items WHERE source = ? AND external_id = ?",
+                (source, external_id),
+            )
+            self._conn.commit()
 
     # --- edit prompts -----------------------------------------------------
 

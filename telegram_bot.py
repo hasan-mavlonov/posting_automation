@@ -17,6 +17,7 @@ from telegram import (
     InlineKeyboardMarkup,
     Update,
 )
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -26,14 +27,15 @@ from telegram.ext import (
     filters,
 )
 
-from drafter import POST_LIMIT
+from drafter import MAX_THREAD_POSTS, POST_LIMIT
 from publisher import PublishError, publish_posts
 from sources import SOURCE_LABELS
 
 log = logging.getLogger(__name__)
 
-# Lines containing only dashes separate thread parts in edited text.
-EDIT_SEPARATOR = re.compile(r"\n\s*-{3,}\s*\n")
+# Lines containing only dashes separate thread parts in edited text
+# (anchored per line, so a separator at the start or end also counts).
+EDIT_SEPARATOR = re.compile(r"^\s*-{3,}\s*$", re.MULTILINE)
 
 
 def draft_keyboard(draft_id: int) -> InlineKeyboardMarkup:
@@ -99,7 +101,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     db = context.bot_data["db"]
 
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except BadRequest as exc:
+        # A callback queued while the worker was down is delivered past
+        # Telegram's answer deadline; the button action must still run.
+        log.info("Could not answer callback query (stale?): %s", exc)
     if update.effective_chat is None or update.effective_chat.id != config.telegram_chat_id:
         log.warning("Ignoring callback from unauthorized chat %s", update.effective_chat)
         return
@@ -109,6 +116,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     draft = db.get_draft(draft_id)
     if draft is None:
         await query.edit_message_text(f"Draft #{draft_id} no longer exists.")
+        return
+    if draft["status"] == "publishing":
+        await query.edit_message_text(
+            format_draft(draft, json.loads(draft["posts_json"]))
+            + "\n\n⚠️ A publish was already in flight when the service stopped. Check "
+            "Buffer/X to see what went out, then resolve this draft in the database "
+            "by hand — re-approving could double-post."
+        )
         return
     if draft["status"] in ("published", "rejected", "failed"):
         await query.edit_message_text(
@@ -121,6 +136,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if action == "approve":
         log.info("Draft #%d approved; publishing %d post(s) to Buffer", draft_id, len(posts))
+        # Commit "publishing" before the external call: if the process dies
+        # mid-publish the draft fails safe (flagged) instead of staying
+        # approvable and getting double-posted.
+        db.set_draft_status(draft_id, "publishing")
         try:
             await asyncio.to_thread(publish_posts, config, posts)
         except PublishError as exc:
@@ -134,6 +153,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                     "avoid duplicate posts."
                 )
             else:
+                db.set_draft_status(draft_id, "pending")
                 await query.edit_message_text(
                     format_draft(draft, posts) + f"\n\n⚠️ Publish failed: {exc}\nNothing was "
                     "posted — you can retry with Approve.",
@@ -178,21 +198,25 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         draft_id = db.pop_edit_prompt(config.telegram_chat_id, message.reply_to_message.message_id)
 
     if draft_id is None:
+        # Deliberately no "assume the only awaiting draft" fallback: a stray
+        # note typed into the chat must never silently become post content.
         awaiting = db.drafts_awaiting_edit()
-        if len(awaiting) == 1:
-            draft_id = awaiting[0]["id"]
-        elif len(awaiting) > 1:
+        if awaiting:
             ids = ", ".join(f"#{d['id']}" for d in awaiting)
             await message.reply_text(
-                f"Several drafts are awaiting edits ({ids}). Reply directly to the "
-                "corresponding ✏️ prompt message so I know which one you mean."
+                f"Draft(s) awaiting an edit: {ids}. Reply directly to the "
+                "corresponding ✏️ prompt message so I know which one you mean "
+                "(or press its Edit button again for a fresh prompt)."
             )
-            return
         else:
             await message.reply_text(
                 "No draft is awaiting an edit. Use the ✏️ Edit button on a draft first."
             )
-            return
+        return
+
+    async def _reprompt(text: str) -> None:
+        prompt = await message.reply_text(text, reply_markup=ForceReply(selective=True))
+        db.add_edit_prompt(config.telegram_chat_id, prompt.message_id, draft_id)
 
     draft = db.get_draft(draft_id)
     if draft is None or draft["status"] != "awaiting_edit":
@@ -201,18 +225,26 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     posts = [p.strip() for p in EDIT_SEPARATOR.split(message.text) if p.strip()]
     if not posts:
-        await message.reply_text("That message was empty — the draft is unchanged.")
+        await _reprompt(
+            "That message had no post text — the draft is unchanged. Reply to this "
+            "message with the new text."
+        )
+        return
+
+    if len(posts) > MAX_THREAD_POSTS:
+        await _reprompt(
+            f"That's {len(posts)} posts; the limit is a thread of {MAX_THREAD_POSTS}. "
+            "Reply to this message with fewer parts."
+        )
         return
 
     too_long = [(i + 1, len(p)) for i, p in enumerate(posts) if len(p) > POST_LIMIT]
     if too_long:
         detail = ", ".join(f"post {i} is {n} chars" for i, n in too_long)
-        prompt = await message.reply_text(
+        await _reprompt(
             f"Too long for X: {detail} (limit {POST_LIMIT}). Reply to this message "
-            "with a shorter version.",
-            reply_markup=ForceReply(selective=True),
+            "with a shorter version."
         )
-        db.add_edit_prompt(config.telegram_chat_id, prompt.message_id, draft_id)
         return
 
     db.update_draft_posts(draft_id, posts, status="pending")
