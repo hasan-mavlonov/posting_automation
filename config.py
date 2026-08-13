@@ -32,10 +32,12 @@ class Config:
     github_token: str
     github_repo: str
     zenodo_community: str
+    website_url: str
     proxy_url: str
     watch_commits: bool
     watch_releases: bool
     watch_zenodo: bool
+    watch_website: bool
     check_interval_minutes: int
     anthropic_model: str
     db_path: str
@@ -96,11 +98,14 @@ def load_config() -> Config:
         # Anthropic, Buffer), e.g. http://127.0.0.1:7897. Leave empty when the
         # network reaches these services directly (e.g. on Render).
         proxy_url=os.environ.get("PROXY_URL", "").strip(),
-        # Commits are noisy on an active repo, so by default only releases and
-        # papers auto-draft; commit posts are generated on demand from /menu.
+        website_url=os.environ.get("WEBSITE_URL", "").strip() or "https://mindform-ai.com",
+        # Auto-draft defaults: releases and website changes on; commits off
+        # (noisy on an active repo) and Zenodo off (post papers on demand from
+        # /menu instead). Everything stays available on demand.
         watch_commits=_bool_env("WATCH_COMMITS", False),
         watch_releases=_bool_env("WATCH_RELEASES", True),
-        watch_zenodo=_bool_env("WATCH_ZENODO", True),
+        watch_zenodo=_bool_env("WATCH_ZENODO", False),
+        watch_website=_bool_env("WATCH_WEBSITE", True),
         check_interval_minutes=_int_env("CHECK_INTERVAL_MINUTES", 180),
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-opus-5",
         db_path=os.environ.get("DB_PATH", "").strip() or "posting_automation.db",
