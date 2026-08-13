@@ -115,7 +115,7 @@ def make_env(**config_overrides):
     kwargs = dict(
         anthropic_api_key="k", telegram_bot_token="t", telegram_chat_id=CHAT_ID,
         buffer_access_token="b", buffer_profile_id="p", github_token="",
-        github_repo="owner/repo", zenodo_community="community",
+        github_repo="owner/repo", zenodo_community="community", proxy_url="",
         watch_commits=True, watch_releases=True, watch_zenodo=True,
         check_interval_minutes=1, anthropic_model="claude-opus-5",
         db_path=":memory:", process_backlog_on_first_run=False,

@@ -86,16 +86,13 @@ class DraftingError(Exception):
 class Drafter:
     def __init__(self, config: Config):
         self._config = config
-
-        self._http_client = httpx.AsyncClient(
-            proxy="http://127.0.0.1:7897",
-            timeout=60.0,
-        )
-
-        self._client = AsyncAnthropic(
-            api_key=config.anthropic_api_key,
-            http_client=self._http_client,
-        )
+        if config.proxy_url:
+            self._client = AsyncAnthropic(
+                api_key=config.anthropic_api_key,
+                http_client=httpx.AsyncClient(proxy=config.proxy_url, timeout=60.0),
+            )
+        else:
+            self._client = AsyncAnthropic(api_key=config.anthropic_api_key)
 
     async def draft_posts(self, item: SourceItem) -> list[str]:
         """Return 1-4 posts, each within the character limit."""

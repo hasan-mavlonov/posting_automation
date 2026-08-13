@@ -44,6 +44,7 @@ credential is missing — it never silently no-ops.
 | `TELEGRAM_CHAT_ID` | ✅ | Start a chat with your bot, run the service once with a placeholder value — or easier: message the bot `/id` once it's running, it replies with the chat id. Alternatively use [@userinfobot](https://t.me/userinfobot). |
 | `BUFFER_ACCESS_TOKEN` | ✅ | Buffer account → developer apps → access token. |
 | `BUFFER_PROFILE_ID` | ✅ | `curl "https://api.bufferapp.com/1/profiles.json?access_token=..."` and copy the `id` of your X profile. |
+| `PROXY_URL` | — | Routes **all** outbound traffic through a proxy/VPN, e.g. `http://127.0.0.1:7897` for a local Clash instance. Needed where Telegram/X-adjacent services are blocked; leave empty on Render. |
 | `GITHUB_TOKEN` | — | Optional; raises the GitHub API rate limit. |
 | `GITHUB_REPO` | — | Defaults to `hasan-mavlonov/mindform_v0`. |
 | `ZENODO_COMMUNITY` | — | The slug from your community's URL (`zenodo.org/communities/<slug>`). Defaults to `mindform-ai`. |
@@ -118,10 +119,11 @@ pushing changes.
 
 ## Troubleshooting
 
-- **`telegram.error.TimedOut` at startup** — the machine couldn't reach
-  `api.telegram.org` (flaky Wi-Fi, VPN, or an ISP that throttles Telegram).
-  The service now retries the connection with backoff instead of exiting, so
-  it recovers by itself when the network does.
+- **`telegram.error.TimedOut` at startup / `Connection refused` to sources** —
+  the machine couldn't reach the service directly. If your network blocks or
+  throttles Telegram/Zenodo, set `PROXY_URL` to your local proxy (e.g. a Clash
+  instance at `http://127.0.0.1:7897`). Startup also retries with backoff
+  instead of exiting, so transient blips recover on their own.
 - **`telegram.error.Conflict: terminated by other getUpdates request`** — two
   copies of the service are polling the same bot token. Telegram allows only
   one. Check for a second terminal still running `main.py`, or a deployed

@@ -32,6 +32,7 @@ class Config:
     github_token: str
     github_repo: str
     zenodo_community: str
+    proxy_url: str
     watch_commits: bool
     watch_releases: bool
     watch_zenodo: bool
@@ -91,6 +92,10 @@ def load_config() -> Config:
         github_token=os.environ.get("GITHUB_TOKEN", "").strip(),
         github_repo=os.environ.get("GITHUB_REPO", "").strip() or "hasan-mavlonov/mindform_v0",
         zenodo_community=os.environ.get("ZENODO_COMMUNITY", "").strip() or "mindform-ai",
+        # Local proxy/VPN for ALL outbound traffic (Telegram, GitHub, Zenodo,
+        # Anthropic, Buffer), e.g. http://127.0.0.1:7897. Leave empty when the
+        # network reaches these services directly (e.g. on Render).
+        proxy_url=os.environ.get("PROXY_URL", "").strip(),
         # Commits are noisy on an active repo, so by default only releases and
         # papers auto-draft; commit posts are generated on demand from /menu.
         watch_commits=_bool_env("WATCH_COMMITS", False),

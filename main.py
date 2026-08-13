@@ -66,17 +66,18 @@ def main() -> None:
         config.db_path,
     )
 
-    application = (
+    builder = (
         ApplicationBuilder()
         .token(config.telegram_bot_token)
-        .proxy("http://127.0.0.1:7897")
-        .get_updates_proxy("http://127.0.0.1:7897")
+        # PTB's default connect timeout is 5s, which flaky networks/VPNs miss.
         .connect_timeout(30)
         .get_updates_connect_timeout(30)
         .post_init(post_init)
         .post_stop(post_stop)
-        .build()
     )
+    if config.proxy_url:
+        builder = builder.proxy(config.proxy_url).get_updates_proxy(config.proxy_url)
+    application = builder.build()
     application.bot_data["config"] = config
     application.bot_data["db"] = Database(config.db_path)
     application.bot_data["drafter"] = Drafter(config)
@@ -87,7 +88,7 @@ def main() -> None:
     # unreachable at startup, instead of crashing the worker on a network blip.
     application.run_polling(
         allowed_updates=["message", "callback_query"],
-        bootstrap_retries=0,
+        bootstrap_retries=-1,
     )
 
 
