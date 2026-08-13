@@ -3,11 +3,12 @@
 An always-on Python service that turns MindForm AI's research and dev activity
 into approved X posts:
 
-1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0` and the
-   MindForm Zenodo community on a configurable schedule. By default releases
-   and Zenodo records auto-draft; commit posts are generated on demand from
-   `/menu` (tune with `WATCH_*`). Seen items are tracked in a local SQLite
-   file so nothing is processed twice.
+1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0`, the
+   MindForm website, and (optionally) the MindForm Zenodo community on a
+   configurable schedule. By default releases and website changes auto-draft;
+   commit and Zenodo posts are generated on demand from `/menu` (tune with
+   `WATCH_*`). Seen items and the website snapshot are tracked in a local
+   SQLite file so nothing is processed twice.
 2. **Drafts** a post for each new item with Claude, grounded strictly in the
    source material — under 280 characters, or a short numbered thread when the
    content needs the room. Releases, papers, and topic posts are written in
@@ -48,7 +49,8 @@ credential is missing — it never silently no-ops.
 | `GITHUB_TOKEN` | — | Optional; raises the GitHub API rate limit. |
 | `GITHUB_REPO` | — | Defaults to `hasan-mavlonov/mindform_v0`. |
 | `ZENODO_COMMUNITY` | — | The slug from your community's URL (`zenodo.org/communities/<slug>`). Defaults to `mindform-ai`. |
-| `WATCH_COMMITS` / `WATCH_RELEASES` / `WATCH_ZENODO` | — | Which sources auto-draft. Defaults: commits **off** (generate dev-update posts on demand from `/menu`), releases and Zenodo **on**. |
+| `WEBSITE_URL` | — | Site watched for changes. Defaults to `https://mindform-ai.com`. |
+| `WATCH_COMMITS` / `WATCH_RELEASES` / `WATCH_ZENODO` / `WATCH_WEBSITE` | — | Which sources auto-draft. Defaults: releases and website changes **on**; commits and Zenodo **off** (generate those on demand from `/menu`). |
 | `CHECK_INTERVAL_MINUTES` | — | Defaults to 180 (every 3 hours). |
 | `ANTHROPIC_MODEL` | — | Defaults to `claude-opus-5`. |
 | `DB_PATH` | — | Defaults to `./posting_automation.db`. |
@@ -62,9 +64,10 @@ for the watcher:
 
 - **Channel picker** → 𝕏 (X is the only channel in v1).
 - **✍️ Generate a post** — on demand, from the latest commit, latest release,
-  latest Zenodo record, or a free-typed topic (reply with your text and Claude
-  drafts a post grounded in exactly what you wrote). Generated drafts go
-  through the same Approve / Edit / Reject review as automatic ones.
+  latest Zenodo record, the website's current content, or a free-typed topic
+  (reply with your text and Claude drafts a post grounded in exactly what you
+  wrote). Generated drafts go through the same Approve / Edit / Reject review
+  as automatic ones.
 - **🕓 Last post** — shows the most recently published draft.
 - **📝 Pending drafts** — re-sends up to 5 drafts still awaiting action, with
   their buttons.
@@ -142,6 +145,12 @@ pushing changes.
   more than that lands between two checks, the overflow is not picked up. At a
   3-hour interval this is unlikely to matter. (Items that *were* observed but
   deferred by `MAX_ITEMS_PER_CYCLE` are persisted and never lost.)
+- Website change detection compares the page's visible text between cycles.
+  The first check stores a snapshot without posting; later changes produce a
+  draft grounded in the new text. A site that injects dynamic text on every
+  load would trigger spurious drafts — they still require your approval, and
+  `WATCH_WEBSITE=false` turns the watcher off (the menu's "What's on the
+  website" still works).
 - Post lengths are validated as plain character counts. X weighs most emoji
   and CJK characters as 2, so a hand-edited draft heavy in emoji can pass the
   280 check here and still be rejected by X downstream. The Claude drafts

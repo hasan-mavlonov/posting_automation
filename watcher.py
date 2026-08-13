@@ -4,6 +4,8 @@ send them to Telegram for review."""
 from __future__ import annotations
 
 import asyncio
+import difflib
+import hashlib
 import logging
 
 from telegram.ext import Application
@@ -11,9 +13,12 @@ from telegram.ext import Application
 from sources import (
     GITHUB_COMMITS,
     GITHUB_RELEASES,
+    MAX_BODY_CHARS,
     SOURCE_FETCHERS,
+    WEBSITE,
     ZENODO,
     SourceItem,
+    fetch_website_text,
 )
 from telegram_bot import send_draft_message
 
@@ -39,12 +44,79 @@ def _enabled_fetchers(config):
     return enabled
 
 
+def _added_text(old: str, new: str) -> str:
+    """Sentence-level chunks that are new or changed in the new text."""
+    old_parts = old.split(". ")
+    new_parts = new.split(". ")
+    matcher = difflib.SequenceMatcher(a=old_parts, b=new_parts, autojunk=False)
+    added = []
+    for tag, _i1, _i2, j1, j2 in matcher.get_opcodes():
+        if tag in ("insert", "replace"):
+            added.extend(new_parts[j1:j2])
+    return ". ".join(added)[:3000]
+
+
+async def check_website(application: Application) -> None:
+    """Draft a post when the site's visible text changes.
+
+    The stored snapshot is the dedup mechanism: it is only replaced after a
+    draft was created and delivered, so failures retry next cycle.
+    """
+    config = application.bot_data["config"]
+    db = application.bot_data["db"]
+    drafter = application.bot_data["drafter"]
+
+    text = await asyncio.to_thread(fetch_website_text, config)
+    if not text.strip():
+        log.info("Checked website: %s returned no readable text", config.website_url)
+        return
+
+    previous = db.get_setting("website_snapshot", "")
+    if not previous:
+        db.set_setting("website_snapshot", text)
+        log.info(
+            "First run for website: snapshot of %s stored without drafting", config.website_url
+        )
+        return
+    if text == previous:
+        log.info("Checked website: no changes on %s", config.website_url)
+        return
+
+    external_id = "site-" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    existing = db.find_draft(WEBSITE, external_id)
+    if existing is not None:
+        log.info("Draft #%d already exists for this website state; backfilling", existing["id"])
+        if existing["telegram_message_id"] is None and existing["status"] == "pending":
+            await send_draft_message(application.bot, config, db, existing["id"])
+    else:
+        added = _added_text(previous, text) or "(text was reworded or removed)"
+        body = (
+            f"NEW OR CHANGED TEXT ON THE SITE:\n{added}\n\n"
+            f"FULL CURRENT PAGE TEXT:\n{text}"
+        )[:MAX_BODY_CHARS]
+        item = SourceItem(
+            source=WEBSITE,
+            external_id=external_id,
+            title="The MindForm website changed",
+            body=body,
+            url=config.website_url,
+        )
+        posts = await drafter.draft_posts(item)
+        draft_id = db.create_draft(item.source, item.external_id, item.title, item.url, posts)
+        await send_draft_message(application.bot, config, db, draft_id)
+        log.info("Website changed; draft #%d sent for review", draft_id)
+    db.set_setting("website_snapshot", text)
+
+
 async def watcher_loop(application: Application) -> None:
     config = application.bot_data["config"]
     db = application.bot_data["db"]
     wake: asyncio.Event = application.bot_data["wake_event"]
     interval_seconds = config.check_interval_minutes * 60
-    watched = ", ".join(name for name, _ in _enabled_fetchers(config)) or "nothing"
+    watched_names = [name for name, _ in _enabled_fetchers(config)]
+    if config.watch_website and config.website_url:
+        watched_names.append("website")
+    watched = ", ".join(watched_names) or "nothing"
     log.info(
         "Watcher started: repo=%s zenodo_community=%s auto-drafting from [%s] every %d min",
         config.github_repo,
@@ -174,3 +246,11 @@ async def run_cycle(application: Application) -> None:
                     item.source,
                     item.external_id,
                 )
+
+    if config.watch_website and config.website_url:
+        try:
+            await check_website(application)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("Website check failed; will retry next cycle")

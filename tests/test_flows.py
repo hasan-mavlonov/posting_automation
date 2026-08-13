@@ -116,7 +116,8 @@ def make_env(**config_overrides):
         anthropic_api_key="k", telegram_bot_token="t", telegram_chat_id=CHAT_ID,
         buffer_access_token="b", buffer_profile_id="p", github_token="",
         github_repo="owner/repo", zenodo_community="community", proxy_url="",
-        watch_commits=True, watch_releases=True, watch_zenodo=True,
+        website_url="https://site.test", watch_commits=True, watch_releases=True,
+        watch_zenodo=True, watch_website=False,
         check_interval_minutes=1, anthropic_model="claude-opus-5",
         db_path=":memory:", process_backlog_on_first_run=False,
         max_items_per_cycle=2,
@@ -399,6 +400,63 @@ def test_source_filtering():
     asyncio.run(run())
 
 
+def test_website_watch():
+    async def run():
+        from types import SimpleNamespace
+
+        _, db, bot, context = make_env(watch_commits=False, watch_releases=False,
+                                       watch_zenodo=False, watch_website=True)
+        app = SimpleNamespace(bot_data=context.bot_data, bot=bot)
+        page = ["MindForm builds a persistent personality layer. Contact us."]
+
+        original = watcher.fetch_website_text
+        watcher.fetch_website_text = lambda config: page[0]
+        try:
+            # first check: snapshot stored, no draft
+            await watcher.run_cycle(app)
+            assert context.bot_data["drafter"].drafted == []
+            assert db.get_setting("website_snapshot", "") == page[0]
+
+            # unchanged: still no draft
+            await watcher.run_cycle(app)
+            assert context.bot_data["drafter"].drafted == []
+
+            # changed: one draft, grounded in the added text
+            page[0] = "MindForm builds a persistent personality layer. Beta is live. Contact us."
+            await watcher.run_cycle(app)
+            drafted = context.bot_data["drafter"].drafted
+            assert len(drafted) == 1 and drafted[0].source == "website"
+            assert "Beta is live" in drafted[0].body
+            assert db.get_setting("website_snapshot", "") == page[0]
+            draft = db.get_draft(1)
+            assert draft["item_url"] == "https://site.test"
+
+            # same state again: no second draft
+            await watcher.run_cycle(app)
+            assert len(context.bot_data["drafter"].drafted) == 1
+        finally:
+            watcher.fetch_website_text = original
+
+    asyncio.run(run())
+
+
+def test_generate_from_website():
+    async def run():
+        _, db, bot, context = make_env()
+        original = tb.fetch_website_text
+        tb.fetch_website_text = lambda config: "Persistent identity for AI agents."
+        try:
+            q = await press(context, "gen:website")
+        finally:
+            tb.fetch_website_text = original
+        drafted = context.bot_data["drafter"].drafted
+        assert len(drafted) == 1 and drafted[0].source == "website"
+        assert db.get_draft(1)["item_url"] == "https://site.test"
+        assert "✅" in q.edits[-1]["text"]
+
+    asyncio.run(run())
+
+
 ALL_TESTS = [
     test_menu_navigation,
     test_auto_toggle_and_check_now,
@@ -408,6 +466,8 @@ ALL_TESTS = [
     test_edit_flow,
     test_watcher_cycle,
     test_source_filtering,
+    test_website_watch,
+    test_generate_from_website,
 ]
 
 if __name__ == "__main__":

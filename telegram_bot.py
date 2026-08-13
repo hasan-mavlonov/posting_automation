@@ -34,9 +34,12 @@ from sources import (
     FETCHER_BY_SOURCE,
     GITHUB_COMMITS,
     GITHUB_RELEASES,
+    MAX_BODY_CHARS,
     SOURCE_LABELS,
+    WEBSITE,
     ZENODO,
     SourceItem,
+    fetch_website_text,
 )
 
 log = logging.getLogger(__name__)
@@ -151,6 +154,7 @@ def gen_menu() -> tuple[str, InlineKeyboardMarkup]:
                 InlineKeyboardButton("Latest Zenodo record", callback_data=f"gen:{ZENODO}"),
                 InlineKeyboardButton("A topic I type", callback_data="gen:topic"),
             ],
+            [InlineKeyboardButton("What's on the website", callback_data="gen:website")],
             [InlineKeyboardButton("⬅️ Back", callback_data="menu:x")],
         ]
     )
@@ -275,6 +279,32 @@ async def on_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             reply_markup=ForceReply(selective=True),
         )
         db.add_input_prompt(config.telegram_chat_id, prompt.message_id, "topic")
+
+    elif data == "gen:website":
+        await query.edit_message_text(f"⏳ Reading {config.website_url}…")
+        try:
+            text = await asyncio.to_thread(fetch_website_text, config)
+        except Exception as exc:
+            log.error("Website fetch failed: %s", exc)
+            await query.edit_message_text(f"⚠️ Could not read {config.website_url}: {exc}")
+            return
+        if not text.strip():
+            await query.edit_message_text(f"{config.website_url} returned no readable text.")
+            return
+        item = SourceItem(
+            source=WEBSITE,
+            external_id="site",  # generate_draft_from_item adds a unique suffix
+            title="The MindForm website",
+            body=text[:MAX_BODY_CHARS],
+            url=config.website_url,
+        )
+        try:
+            draft_id = await generate_draft_from_item(context, item)
+        except Exception as exc:
+            log.exception("Website drafting failed")
+            await query.edit_message_text(f"⚠️ Drafting failed: {exc}")
+            return
+        await query.edit_message_text(f"✅ Draft #{draft_id} sent below for review.")
 
     elif data.startswith("gen:"):
         source_name = data.partition(":")[2]

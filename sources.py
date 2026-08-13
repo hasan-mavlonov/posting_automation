@@ -19,6 +19,10 @@ USER_AGENT = "mindform-posting-automation (+https://github.com/hasan-mavlonov/po
 GITHUB_COMMITS = "github_commit"
 GITHUB_RELEASES = "github_release"
 ZENODO = "zenodo"
+WEBSITE = "website"
+
+# Cap on the stored website snapshot used for change detection.
+MAX_SNAPSHOT_CHARS = 20000
 
 # Body text sent to the drafting model is capped so a giant release note or
 # paper description can't blow up the request; titles are capped so the
@@ -162,6 +166,19 @@ def fetch_zenodo_records(config: Config) -> list[SourceItem]:
     return items
 
 
+def fetch_website_text(config: Config) -> str:
+    """Normalized visible text of the website, for change detection/drafting."""
+    resp = requests.get(
+        config.website_url,
+        headers={"User-Agent": USER_AGENT},
+        proxies=_proxies(config),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    page = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", resp.text)
+    return _strip_html(page)[:MAX_SNAPSHOT_CHARS]
+
+
 SOURCE_FETCHERS = [
     (GITHUB_COMMITS, fetch_github_commits),
     (GITHUB_RELEASES, fetch_github_releases),
@@ -174,5 +191,6 @@ SOURCE_LABELS = {
     GITHUB_COMMITS: "GitHub commit",
     GITHUB_RELEASES: "GitHub release",
     ZENODO: "Zenodo record",
+    WEBSITE: "Website update",
     "topic": "Topic post",
 }
