@@ -50,6 +50,25 @@ credential is missing — it never silently no-ops.
 | `PROCESS_BACKLOG_ON_FIRST_RUN` | — | By default the first check per source marks all existing history as *seen* without posting, so you aren't flooded with the backlog. Set `true` to draft the backlog too. |
 | `MAX_ITEMS_PER_CYCLE` | — | Defaults to 10 drafts per source per cycle; the overflow is persisted and drafted on later cycles. |
 
+### The interactive menu
+
+Send `/menu` (or `/start`) to the bot to drive it directly instead of waiting
+for the watcher:
+
+- **Channel picker** → 𝕏 (X is the only channel in v1).
+- **✍️ Generate a post** — on demand, from the latest commit, latest release,
+  latest Zenodo record, or a free-typed topic (reply with your text and Claude
+  drafts a post grounded in exactly what you wrote). Generated drafts go
+  through the same Approve / Edit / Reject review as automatic ones.
+- **🕓 Last post** — shows the most recently published draft.
+- **📝 Pending drafts** — re-sends up to 5 drafts still awaiting action, with
+  their buttons.
+- **⏸/▶️ Pause / resume auto-drafting** — turns the automatic source watcher
+  off/on (persists across restarts). Paused means fully interactive mode:
+  posts happen only when you generate them.
+- **🔄 Check sources now** — runs a source check immediately instead of
+  waiting for the next scheduled cycle. Handy for testing.
+
 ### The review flow in Telegram
 
 - **✅ Approve** — publishes immediately via Buffer. Thread parts are posted as
@@ -80,6 +99,18 @@ otherwise a redeploy forgets what was already posted (the first-run baseline
 prevents re-posting old history, but items that arrived while the service was
 down would be baselined too). Logs go to stdout and show every check, draft,
 and publish, so Render's log view tells you exactly what the worker is doing.
+
+## Troubleshooting
+
+- **`telegram.error.Conflict: terminated by other getUpdates request`** — two
+  copies of the service are polling the same bot token. Telegram allows only
+  one. Check for a second terminal still running `main.py`, or a deployed
+  copy (e.g. the Render worker) running alongside your local one. Stop all
+  but one.
+- **`Failed to fetch zenodo: ... Connection refused`** (or similar network
+  errors for GitHub) — the machine couldn't reach the API at that moment.
+  This is non-fatal: the error is logged and the source is retried on the
+  next cycle; nothing is lost.
 
 ## Notes
 

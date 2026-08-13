@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from telegram.ext import Application, ApplicationBuilder
+from telegram.error import Conflict
+from telegram.ext import Application, ApplicationBuilder, ContextTypes
 
 from config import load_config
 from db import Database
@@ -24,7 +25,19 @@ log = logging.getLogger(__name__)
 async def post_init(application: Application) -> None:
     me = await application.bot.get_me()
     log.info("Telegram bot @%s connected; starting source watcher", me.username)
+    application.bot_data["wake_event"] = asyncio.Event()
     application.bot_data["watcher_task"] = asyncio.create_task(watcher_loop(application))
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, Conflict):
+        log.error(
+            "Telegram says another process is polling this bot token. Run only ONE "
+            "instance: check for a second terminal, or a deployed copy (e.g. on "
+            "Render) running alongside this one."
+        )
+    else:
+        log.error("Unhandled error while processing an update", exc_info=context.error)
 
 
 async def post_stop(application: Application) -> None:
@@ -63,6 +76,7 @@ def main() -> None:
     application.bot_data["config"] = config
     application.bot_data["db"] = Database(config.db_path)
     application.bot_data["drafter"] = Drafter(config)
+    application.add_error_handler(on_error)
     register_handlers(application, config.telegram_chat_id)
 
     application.run_polling(allowed_updates=["message", "callback_query"])

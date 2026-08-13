@@ -21,6 +21,8 @@ BASELINE_SENTINEL = "__baseline__"
 
 async def watcher_loop(application: Application) -> None:
     config = application.bot_data["config"]
+    db = application.bot_data["db"]
+    wake: asyncio.Event = application.bot_data["wake_event"]
     interval_seconds = config.check_interval_minutes * 60
     log.info(
         "Watcher started: repo=%s zenodo_community=%s every %d min",
@@ -29,14 +31,24 @@ async def watcher_loop(application: Application) -> None:
         config.check_interval_minutes,
     )
     while True:
+        force = application.bot_data.pop("force_cycle", False)
         try:
-            await run_cycle(application)
+            if db.get_setting("auto_drafting", "on") == "on" or force:
+                await run_cycle(application)
+            else:
+                log.info("Auto-drafting is paused; skipping source check (resume via /menu)")
         except asyncio.CancelledError:
             log.info("Watcher stopped")
             raise
         except Exception:
             log.exception("Source check cycle failed; will retry next cycle")
-        await asyncio.sleep(interval_seconds)
+        # Sleep until the next scheduled cycle, or earlier if the bot menu's
+        # "Check sources now" sets the wake event.
+        try:
+            await asyncio.wait_for(wake.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass
+        wake.clear()
 
 
 async def run_cycle(application: Application) -> None:

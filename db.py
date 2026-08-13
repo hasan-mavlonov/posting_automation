@@ -49,6 +49,18 @@ CREATE TABLE IF NOT EXISTS pending_items (
     queued_at   TEXT NOT NULL,
     PRIMARY KEY (source, external_id)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS input_prompts (
+    chat_id    INTEGER NOT NULL,
+    message_id INTEGER NOT NULL,
+    kind       TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
+);
 """
 
 # Draft status lifecycle:
@@ -158,6 +170,64 @@ class Database:
             return self._conn.execute(
                 "SELECT * FROM drafts WHERE status = 'awaiting_edit' ORDER BY id"
             ).fetchall()
+
+    def drafts_by_status(self, statuses: tuple[str, ...], limit: int) -> list[sqlite3.Row]:
+        placeholders = ", ".join("?" for _ in statuses)
+        with self._lock:
+            return self._conn.execute(
+                f"SELECT * FROM drafts WHERE status IN ({placeholders})"
+                " ORDER BY id DESC LIMIT ?",
+                (*statuses, limit),
+            ).fetchall()
+
+    def last_published_draft(self) -> sqlite3.Row | None:
+        with self._lock:
+            return self._conn.execute(
+                "SELECT * FROM drafts WHERE status = 'published'"
+                " ORDER BY updated_at DESC, id DESC LIMIT 1"
+            ).fetchone()
+
+    # --- settings ---------------------------------------------------------
+
+    def get_setting(self, key: str, default: str) -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row is not None else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value)
+            )
+            self._conn.commit()
+
+    # --- input prompts (force-reply questions that expect free text) ------
+
+    def add_input_prompt(self, chat_id: int, message_id: int, kind: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO input_prompts (chat_id, message_id, kind)"
+                " VALUES (?, ?, ?)",
+                (chat_id, message_id, kind),
+            )
+            self._conn.commit()
+
+    def pop_input_prompt(self, chat_id: int, message_id: int) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT kind FROM input_prompts WHERE chat_id = ? AND message_id = ?",
+                (chat_id, message_id),
+            ).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "DELETE FROM input_prompts WHERE chat_id = ? AND message_id = ?",
+                (chat_id, message_id),
+            )
+            self._conn.commit()
+        return str(row["kind"])
 
     # --- pending items (per-cycle cap overflow) ---------------------------
 

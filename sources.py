@@ -148,8 +148,11 @@ SOURCE_FETCHERS = [
     (ZENODO, fetch_zenodo_records),
 ]
 
+FETCHER_BY_SOURCE = dict(SOURCE_FETCHERS)
+
 SOURCE_LABELS = {
     GITHUB_COMMITS: "GitHub commit",
     GITHUB_RELEASES: "GitHub release",
     ZENODO: "Zenodo record",
+    "topic": "Topic post",
 }

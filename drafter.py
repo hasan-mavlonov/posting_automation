@@ -23,8 +23,8 @@ MAX_THREAD_POSTS = 4
 SYSTEM_PROMPT = """\
 You write posts for the X (Twitter) account of MindForm AI, a small AI research lab.
 
-You are given one source item: a GitHub commit, a GitHub release, or a research record
-from Zenodo. Write a post announcing it.
+You are given one source item: a GitHub commit, a GitHub release, a research record
+from Zenodo, or a topic the account owner typed. Write a post announcing it.
 
 Rules:
 - Ground every claim in the provided material. Never invent features, numbers, results,
@@ -34,7 +34,8 @@ Rules:
 - Strongly prefer a single post. Only produce a thread of 2-4 posts if the content
   genuinely needs the room.
 - In a thread, prefix each post with its position: "1/ ", "2/ ", and so on.
-- Include the item's URL exactly once, at the end of the first post.
+- If a URL is provided, include it exactly once, at the end of the first post. If no
+  URL is provided, do not invent one.
 - Plain, direct, technical tone. No hype words, no emoji, at most one hashtag and only
   when it clearly helps discovery.
 """
@@ -96,10 +97,11 @@ class Drafter:
     def _build_prompt(self, item: SourceItem) -> str:
         label = SOURCE_LABELS.get(item.source, item.source)
         body = item.body.strip() or "(no further description provided)"
+        url_line = item.url if item.url else "(none)"
         return (
             f"Source type: {label}\n"
             f"Title: {item.title}\n"
-            f"URL: {item.url}\n\n"
+            f"URL: {url_line}\n\n"
             f"Content:\n{body}"
         )
 
