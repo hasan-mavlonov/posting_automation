@@ -100,8 +100,24 @@ prevents re-posting old history, but items that arrived while the service was
 down would be baselined too). Logs go to stdout and show every check, draft,
 and publish, so Render's log view tells you exactly what the worker is doing.
 
+## Tests
+
+```bash
+python -m tests.test_flows
+```
+
+Offline tests (no network, no credentials) that exercise the real handlers
+against an in-memory database: menu navigation, on-demand generation, the
+topic flow, every approve/publish outcome, the whole edit flow, and the
+watcher cycle (baseline, cap overflow, restart healing). Run them before
+pushing changes.
+
 ## Troubleshooting
 
+- **`telegram.error.TimedOut` at startup** — the machine couldn't reach
+  `api.telegram.org` (flaky Wi-Fi, VPN, or an ISP that throttles Telegram).
+  The service now retries the connection with backoff instead of exiting, so
+  it recovers by itself when the network does.
 - **`telegram.error.Conflict: terminated by other getUpdates request`** — two
   copies of the service are polling the same bot token. Telegram allows only
   one. Check for a second terminal still running `main.py`, or a deployed
