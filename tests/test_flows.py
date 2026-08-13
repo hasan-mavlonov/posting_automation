@@ -111,19 +111,22 @@ class StubDrafter:
 CHAT_ID = 42
 
 
-def make_env(**drafter_kwargs):
-    config = Config(
+def make_env(**config_overrides):
+    kwargs = dict(
         anthropic_api_key="k", telegram_bot_token="t", telegram_chat_id=CHAT_ID,
         buffer_access_token="b", buffer_profile_id="p", github_token="",
         github_repo="owner/repo", zenodo_community="community",
+        watch_commits=True, watch_releases=True, watch_zenodo=True,
         check_interval_minutes=1, anthropic_model="claude-opus-5",
         db_path=":memory:", process_backlog_on_first_run=False,
         max_items_per_cycle=2,
     )
+    kwargs.update(config_overrides)
+    config = Config(**kwargs)
     db = Database(":memory:")
     bot = FakeBot()
     bot_data = {
-        "config": config, "db": db, "drafter": StubDrafter(**drafter_kwargs),
+        "config": config, "db": db, "drafter": StubDrafter(),
         "wake_event": asyncio.Event(),
     }
     return config, db, bot, FakeContext(bot, bot_data)
@@ -366,6 +369,36 @@ def test_watcher_cycle():
     asyncio.run(run())
 
 
+def test_source_filtering():
+    async def run():
+        from types import SimpleNamespace
+
+        # commits off, zenodo community missing -> neither fetcher is called
+        _, db, bot, context = make_env(watch_commits=False, zenodo_community="")
+        app = SimpleNamespace(bot_data=context.bot_data, bot=bot)
+        calls = []
+
+        def spy(name):
+            def fetch(config):
+                calls.append(name)
+                return []
+            return fetch
+
+        original = watcher.SOURCE_FETCHERS
+        watcher.SOURCE_FETCHERS = [
+            ("github_commit", spy("github_commit")),
+            ("github_release", spy("github_release")),
+            ("zenodo", spy("zenodo")),
+        ]
+        try:
+            await watcher.run_cycle(app)
+        finally:
+            watcher.SOURCE_FETCHERS = original
+        assert calls == ["github_release"]
+
+    asyncio.run(run())
+
+
 ALL_TESTS = [
     test_menu_navigation,
     test_auto_toggle_and_check_now,
@@ -374,6 +407,7 @@ ALL_TESTS = [
     test_approve_paths,
     test_edit_flow,
     test_watcher_cycle,
+    test_source_filtering,
 ]
 
 if __name__ == "__main__":

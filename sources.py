@@ -112,18 +112,18 @@ def _strip_html(text: str) -> str:
 
 
 def fetch_zenodo_records(config: Config) -> list[SourceItem]:
+    # Community-scoped endpoint. The legacy /api/records?communities=... filter
+    # is silently IGNORED by today's Zenodo (it returns the global firehose);
+    # this endpoint 404s loudly on a wrong slug instead. Default sort is
+    # newest-first.
     proxies = {
         "http": "http://127.0.0.1:7897",
         "https": "http://127.0.0.1:7897",
     }
 
     resp = requests.get(
-        "https://zenodo.org/api/records",
-        params={
-            "communities": config.zenodo_community,
-            "size": 20,
-            "sort": "mostrecent",
-        },
+        f"https://zenodo.org/api/communities/{config.zenodo_community}/records",
+        params={"size": 20},
         headers={"User-Agent": USER_AGENT},
         proxies=proxies,
         timeout=30,

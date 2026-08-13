@@ -3,13 +3,16 @@
 An always-on Python service that turns MindForm AI's research and dev activity
 into approved X posts:
 
-1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0` (new commits
-   and releases) and the Zenodo community *MindForm AI Research* (new records)
-   on a configurable schedule. Seen items are tracked in a local SQLite file so
-   nothing is processed twice.
+1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0` and the
+   MindForm Zenodo community on a configurable schedule. By default releases
+   and Zenodo records auto-draft; commit posts are generated on demand from
+   `/menu` (tune with `WATCH_*`). Seen items are tracked in a local SQLite
+   file so nothing is processed twice.
 2. **Drafts** a post for each new item with Claude, grounded strictly in the
-   commit message / release notes / record description — under 280 characters,
-   or a short numbered thread when the content needs the room.
+   source material — under 280 characters, or a short numbered thread when the
+   content needs the room. Releases, papers, and topic posts are written in
+   the founder's voice (hook first, short lines, link at the end); commit
+   posts stay plain dev updates.
 3. **Sends** each draft to you on Telegram with three buttons: **Approve**,
    **Edit**, **Reject**. Edit asks you to reply with the corrected text, which
    becomes the new draft and is re-sent with the same buttons.
@@ -43,7 +46,8 @@ credential is missing — it never silently no-ops.
 | `BUFFER_PROFILE_ID` | ✅ | `curl "https://api.bufferapp.com/1/profiles.json?access_token=..."` and copy the `id` of your X profile. |
 | `GITHUB_TOKEN` | — | Optional; raises the GitHub API rate limit. |
 | `GITHUB_REPO` | — | Defaults to `hasan-mavlonov/mindform_v0`. |
-| `ZENODO_COMMUNITY` | — | Defaults to `mindform-ai-research`. Use the identifier from your community's Zenodo URL. |
+| `ZENODO_COMMUNITY` | — | The slug from your community's URL (`zenodo.org/communities/<slug>`). Defaults to `mindform-ai`. |
+| `WATCH_COMMITS` / `WATCH_RELEASES` / `WATCH_ZENODO` | — | Which sources auto-draft. Defaults: commits **off** (generate dev-update posts on demand from `/menu`), releases and Zenodo **on**. |
 | `CHECK_INTERVAL_MINUTES` | — | Defaults to 180 (every 3 hours). |
 | `ANTHROPIC_MODEL` | — | Defaults to `claude-opus-5`. |
 | `DB_PATH` | — | Defaults to `./posting_automation.db`. |

@@ -8,7 +8,13 @@ import logging
 
 from telegram.ext import Application
 
-from sources import SOURCE_FETCHERS, SourceItem
+from sources import (
+    GITHUB_COMMITS,
+    GITHUB_RELEASES,
+    SOURCE_FETCHERS,
+    ZENODO,
+    SourceItem,
+)
 from telegram_bot import send_draft_message
 
 log = logging.getLogger(__name__)
@@ -19,15 +25,31 @@ log = logging.getLogger(__name__)
 BASELINE_SENTINEL = "__baseline__"
 
 
+def _enabled_fetchers(config):
+    """Sources the watcher auto-drafts from; the rest stay on-demand via /menu."""
+    enabled = []
+    for name, fetcher in SOURCE_FETCHERS:
+        if name == GITHUB_COMMITS and not config.watch_commits:
+            continue
+        if name == GITHUB_RELEASES and not config.watch_releases:
+            continue
+        if name == ZENODO and (not config.watch_zenodo or not config.zenodo_community):
+            continue
+        enabled.append((name, fetcher))
+    return enabled
+
+
 async def watcher_loop(application: Application) -> None:
     config = application.bot_data["config"]
     db = application.bot_data["db"]
     wake: asyncio.Event = application.bot_data["wake_event"]
     interval_seconds = config.check_interval_minutes * 60
+    watched = ", ".join(name for name, _ in _enabled_fetchers(config)) or "nothing"
     log.info(
-        "Watcher started: repo=%s zenodo_community=%s every %d min",
+        "Watcher started: repo=%s zenodo_community=%s auto-drafting from [%s] every %d min",
         config.github_repo,
         config.zenodo_community,
+        watched,
         config.check_interval_minutes,
     )
     while True:
@@ -56,7 +78,7 @@ async def run_cycle(application: Application) -> None:
     db = application.bot_data["db"]
     drafter = application.bot_data["drafter"]
 
-    for source_name, fetcher in SOURCE_FETCHERS:
+    for source_name, fetcher in _enabled_fetchers(config):
         try:
             items = await asyncio.to_thread(fetcher, config)
         except Exception as exc:
