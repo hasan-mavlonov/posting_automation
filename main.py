@@ -69,6 +69,9 @@ def main() -> None:
     application = (
         ApplicationBuilder()
         .token(config.telegram_bot_token)
+        # PTB's default connect timeout is 5s, which flaky networks/VPNs miss.
+        .connect_timeout(30)
+        .get_updates_connect_timeout(30)
         .post_init(post_init)
         .post_stop(post_stop)
         .build()
@@ -79,7 +82,12 @@ def main() -> None:
     application.add_error_handler(on_error)
     register_handlers(application, config.telegram_chat_id)
 
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    # bootstrap_retries=-1: keep retrying (with backoff) if Telegram is
+    # unreachable at startup, instead of crashing the worker on a network blip.
+    application.run_polling(
+        allowed_updates=["message", "callback_query"],
+        bootstrap_retries=-1,
+    )
 
 
 if __name__ == "__main__":
