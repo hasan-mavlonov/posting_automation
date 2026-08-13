@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
-import os
+
 import requests
 
 from config import Config
@@ -43,6 +43,12 @@ class SourceItem:
     url: str
 
 
+def _proxies(config: Config) -> dict[str, str] | None:
+    if not config.proxy_url:
+        return None
+    return {"http": config.proxy_url, "https": config.proxy_url}
+
+
 def _github_headers(config: Config) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -58,6 +64,7 @@ def fetch_github_commits(config: Config) -> list[SourceItem]:
         f"https://api.github.com/repos/{config.github_repo}/commits",
         params={"per_page": 30},
         headers=_github_headers(config),
+        proxies=_proxies(config),
         timeout=30,
     )
     resp.raise_for_status()
@@ -84,6 +91,7 @@ def fetch_github_releases(config: Config) -> list[SourceItem]:
         f"https://api.github.com/repos/{config.github_repo}/releases",
         params={"per_page": 15},
         headers=_github_headers(config),
+        proxies=_proxies(config),
         timeout=30,
     )
     resp.raise_for_status()
@@ -112,20 +120,15 @@ def _strip_html(text: str) -> str:
 
 
 def fetch_zenodo_records(config: Config) -> list[SourceItem]:
-    proxies = {
-        "http": "http://127.0.0.1:7897",
-        "https": "http://127.0.0.1:7897",
-    }
-
+    # Community-scoped endpoint. The legacy /api/records?communities=... filter
+    # is silently IGNORED by today's Zenodo (it returns the global firehose);
+    # this endpoint 404s loudly on a wrong slug instead. Default sort is
+    # newest-first.
     resp = requests.get(
-        "https://zenodo.org/api/records",
-        params={
-            "communities": config.zenodo_community,
-            "size": 20,
-            "sort": "mostrecent",
-        },
+        f"https://zenodo.org/api/communities/{config.zenodo_community}/records",
+        params={"size": 20},
         headers={"User-Agent": USER_AGENT},
-        proxies=proxies,
+        proxies=_proxies(config),
         timeout=30,
     )
     resp.raise_for_status()

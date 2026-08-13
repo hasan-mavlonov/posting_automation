@@ -28,6 +28,7 @@ def publish_posts(config: Config, posts: list[str]) -> list[str]:
     Thread parts are published as sequential separate posts (the classic
     Buffer API has no native thread support). Returns Buffer update ids.
     """
+    proxies = {"http": config.proxy_url, "https": config.proxy_url} if config.proxy_url else None
     update_ids: list[str] = []
     for index, text in enumerate(posts):
         try:
@@ -39,6 +40,7 @@ def publish_posts(config: Config, posts: list[str]) -> list[str]:
                     "text": text,
                     "now": "true",
                 },
+                proxies=proxies,
                 timeout=30,
             )
         except requests.RequestException as exc:

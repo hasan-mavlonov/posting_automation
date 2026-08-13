@@ -3,13 +3,16 @@
 An always-on Python service that turns MindForm AI's research and dev activity
 into approved X posts:
 
-1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0` (new commits
-   and releases) and the Zenodo community *MindForm AI Research* (new records)
-   on a configurable schedule. Seen items are tracked in a local SQLite file so
-   nothing is processed twice.
+1. **Watches** the public GitHub repo `hasan-mavlonov/mindform_v0` and the
+   MindForm Zenodo community on a configurable schedule. By default releases
+   and Zenodo records auto-draft; commit posts are generated on demand from
+   `/menu` (tune with `WATCH_*`). Seen items are tracked in a local SQLite
+   file so nothing is processed twice.
 2. **Drafts** a post for each new item with Claude, grounded strictly in the
-   commit message / release notes / record description — under 280 characters,
-   or a short numbered thread when the content needs the room.
+   source material — under 280 characters, or a short numbered thread when the
+   content needs the room. Releases, papers, and topic posts are written in
+   the founder's voice (hook first, short lines, link at the end); commit
+   posts stay plain dev updates.
 3. **Sends** each draft to you on Telegram with three buttons: **Approve**,
    **Edit**, **Reject**. Edit asks you to reply with the corrected text, which
    becomes the new draft and is re-sent with the same buttons.
@@ -41,9 +44,11 @@ credential is missing — it never silently no-ops.
 | `TELEGRAM_CHAT_ID` | ✅ | Start a chat with your bot, run the service once with a placeholder value — or easier: message the bot `/id` once it's running, it replies with the chat id. Alternatively use [@userinfobot](https://t.me/userinfobot). |
 | `BUFFER_ACCESS_TOKEN` | ✅ | Buffer account → developer apps → access token. |
 | `BUFFER_PROFILE_ID` | ✅ | `curl "https://api.bufferapp.com/1/profiles.json?access_token=..."` and copy the `id` of your X profile. |
+| `PROXY_URL` | — | Routes **all** outbound traffic through a proxy/VPN, e.g. `http://127.0.0.1:7897` for a local Clash instance. Needed where Telegram/X-adjacent services are blocked; leave empty on Render. |
 | `GITHUB_TOKEN` | — | Optional; raises the GitHub API rate limit. |
 | `GITHUB_REPO` | — | Defaults to `hasan-mavlonov/mindform_v0`. |
-| `ZENODO_COMMUNITY` | — | Defaults to `mindform-ai-research`. Use the identifier from your community's Zenodo URL. |
+| `ZENODO_COMMUNITY` | — | The slug from your community's URL (`zenodo.org/communities/<slug>`). Defaults to `mindform-ai`. |
+| `WATCH_COMMITS` / `WATCH_RELEASES` / `WATCH_ZENODO` | — | Which sources auto-draft. Defaults: commits **off** (generate dev-update posts on demand from `/menu`), releases and Zenodo **on**. |
 | `CHECK_INTERVAL_MINUTES` | — | Defaults to 180 (every 3 hours). |
 | `ANTHROPIC_MODEL` | — | Defaults to `claude-opus-5`. |
 | `DB_PATH` | — | Defaults to `./posting_automation.db`. |
@@ -114,10 +119,11 @@ pushing changes.
 
 ## Troubleshooting
 
-- **`telegram.error.TimedOut` at startup** — the machine couldn't reach
-  `api.telegram.org` (flaky Wi-Fi, VPN, or an ISP that throttles Telegram).
-  The service now retries the connection with backoff instead of exiting, so
-  it recovers by itself when the network does.
+- **`telegram.error.TimedOut` at startup / `Connection refused` to sources** —
+  the machine couldn't reach the service directly. If your network blocks or
+  throttles Telegram/Zenodo, set `PROXY_URL` to your local proxy (e.g. a Clash
+  instance at `http://127.0.0.1:7897`). Startup also retries with backoff
+  instead of exiting, so transient blips recover on their own.
 - **`telegram.error.Conflict: terminated by other getUpdates request`** — two
   copies of the service are polling the same bot token. Telegram allows only
   one. Check for a second terminal still running `main.py`, or a deployed

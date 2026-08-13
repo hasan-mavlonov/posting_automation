@@ -32,6 +32,10 @@ class Config:
     github_token: str
     github_repo: str
     zenodo_community: str
+    proxy_url: str
+    watch_commits: bool
+    watch_releases: bool
+    watch_zenodo: bool
     check_interval_minutes: int
     anthropic_model: str
     db_path: str
@@ -87,7 +91,16 @@ def load_config() -> Config:
         buffer_profile_id=os.environ["BUFFER_PROFILE_ID"].strip(),
         github_token=os.environ.get("GITHUB_TOKEN", "").strip(),
         github_repo=os.environ.get("GITHUB_REPO", "").strip() or "hasan-mavlonov/mindform_v0",
-        zenodo_community=os.environ.get("ZENODO_COMMUNITY", "").strip() or "mindform-ai-research",
+        zenodo_community=os.environ.get("ZENODO_COMMUNITY", "").strip() or "mindform-ai",
+        # Local proxy/VPN for ALL outbound traffic (Telegram, GitHub, Zenodo,
+        # Anthropic, Buffer), e.g. http://127.0.0.1:7897. Leave empty when the
+        # network reaches these services directly (e.g. on Render).
+        proxy_url=os.environ.get("PROXY_URL", "").strip(),
+        # Commits are noisy on an active repo, so by default only releases and
+        # papers auto-draft; commit posts are generated on demand from /menu.
+        watch_commits=_bool_env("WATCH_COMMITS", False),
+        watch_releases=_bool_env("WATCH_RELEASES", True),
+        watch_zenodo=_bool_env("WATCH_ZENODO", True),
         check_interval_minutes=_int_env("CHECK_INTERVAL_MINUTES", 180),
         anthropic_model=os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-opus-5",
         db_path=os.environ.get("DB_PATH", "").strip() or "posting_automation.db",
