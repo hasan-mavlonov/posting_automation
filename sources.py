@@ -9,7 +9,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
-
+import os
 import requests
 
 from config import Config
@@ -112,6 +112,11 @@ def _strip_html(text: str) -> str:
 
 
 def fetch_zenodo_records(config: Config) -> list[SourceItem]:
+    proxies = {
+        "http": "http://127.0.0.1:7897",
+        "https": "http://127.0.0.1:7897",
+    }
+
     resp = requests.get(
         "https://zenodo.org/api/records",
         params={
@@ -120,24 +125,36 @@ def fetch_zenodo_records(config: Config) -> list[SourceItem]:
             "sort": "mostrecent",
         },
         headers={"User-Agent": USER_AGENT},
+        proxies=proxies,
         timeout=30,
     )
     resp.raise_for_status()
+
     hits = resp.json().get("hits", {}).get("hits", [])
+
     items = []
     for record in hits:
         metadata = record.get("metadata", {})
         record_id = str(record["id"])
-        url = record.get("links", {}).get("self_html") or f"https://zenodo.org/records/{record_id}"
+        url = (
+            record.get("links", {}).get("self_html")
+            or f"https://zenodo.org/records/{record_id}"
+        )
+
         items.append(
             SourceItem(
                 source=ZENODO,
                 external_id=record_id,
-                title=_clip_title(metadata.get("title") or "Untitled record"),
-                body=_strip_html(metadata.get("description") or "")[:MAX_BODY_CHARS],
+                title=_clip_title(
+                    metadata.get("title") or "Untitled record"
+                ),
+                body=_strip_html(
+                    metadata.get("description") or ""
+                )[:MAX_BODY_CHARS],
                 url=url,
             )
         )
+
     items.reverse()
     return items
 

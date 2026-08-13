@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
+import httpx
 from anthropic import AsyncAnthropic
 
 from config import Config
@@ -60,7 +61,16 @@ class DraftingError(Exception):
 class Drafter:
     def __init__(self, config: Config):
         self._config = config
-        self._client = AsyncAnthropic(api_key=config.anthropic_api_key)
+
+        self._http_client = httpx.AsyncClient(
+            proxy="http://127.0.0.1:7897",
+            timeout=60.0,
+        )
+
+        self._client = AsyncAnthropic(
+            api_key=config.anthropic_api_key,
+            http_client=self._http_client,
+        )
 
     async def draft_posts(self, item: SourceItem) -> list[str]:
         """Return 1-4 posts, each within the character limit."""

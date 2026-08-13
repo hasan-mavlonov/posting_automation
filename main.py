@@ -69,7 +69,8 @@ def main() -> None:
     application = (
         ApplicationBuilder()
         .token(config.telegram_bot_token)
-        # PTB's default connect timeout is 5s, which flaky networks/VPNs miss.
+        .proxy("http://127.0.0.1:7897")
+        .get_updates_proxy("http://127.0.0.1:7897")
         .connect_timeout(30)
         .get_updates_connect_timeout(30)
         .post_init(post_init)
@@ -86,7 +87,7 @@ def main() -> None:
     # unreachable at startup, instead of crashing the worker on a network blip.
     application.run_polling(
         allowed_updates=["message", "callback_query"],
-        bootstrap_retries=-1,
+        bootstrap_retries=0,
     )
 
 
